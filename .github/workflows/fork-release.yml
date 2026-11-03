@@ -1,0 +1,57 @@
+name: Fork Release
+
+# Builds neovide.exe for Windows and publishes it as a GitHub release of the
+# fork. Push a tag like 0.17.1-valign.1 to start it. The asset has the same
+# name as the asset of an official release.
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "*-valign*"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      # This is needed for building skia from source
+      - name: Setup github long path support
+        run: git config --system core.longpaths true
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v6
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+crt-static"
+        run: cargo build --locked --release
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd target/release
+          7z a ../../neovide-windows-x86_64.zip neovide.exe
+          cd ../..
+          gh release create "$GITHUB_REF_NAME" neovide-windows-x86_64.zip \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Neovide with the grid_valign setting, built from $GITHUB_SHA."
