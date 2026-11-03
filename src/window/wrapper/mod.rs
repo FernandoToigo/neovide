@@ -96,6 +96,7 @@ use crate::window::ThemeSettings;
 use crate::window::create_window;
 use crate::window::determine_grid_size;
 use crate::window::determine_window_size;
+use crate::window::settings::GridVAlign;
 
 #[cfg_attr(target_os = "macos", path = "macos/mod.rs")]
 #[cfg_attr(target_os = "linux", path = "linux.rs")]
@@ -136,6 +137,28 @@ pub struct WindowPadding {
     pub left: u32,
     pub right: u32,
     pub bottom: u32,
+    pub grid_valign: GridVAlign,
+}
+
+/// Returns the vertical pixel offset of the grid inside the content area, and
+/// the number of rows to add to the grid size, for the pixels that are left
+/// over when the content height is not a multiple of the cell height.
+fn grid_valign_layout(padding: &WindowPadding, inner_height: u32, cell_height: f32) -> (f32, u32) {
+    let content_height = inner_height.saturating_sub(padding.top + padding.bottom) as f32;
+    if cell_height <= 0.0 || content_height <= 0.0 {
+        return (0.0, 0);
+    }
+    let rows = round_or_op(content_height / cell_height, f32::floor);
+    let leftover = (content_height - rows * cell_height).max(0.0).floor();
+    if leftover < 1.0 {
+        return (0.0, 0);
+    }
+    match padding.grid_valign {
+        GridVAlign::Top => (0.0, 0),
+        GridVAlign::Center => ((leftover / 2.0).floor(), 0),
+        GridVAlign::Bottom => (leftover, 0),
+        GridVAlign::Fill => (leftover - cell_height, 1),
+    }
 }
 
 impl WindowPadding {
@@ -231,7 +254,13 @@ impl RouteState {
             saved_grid_size: None,
             requested_columns: None,
             requested_lines: None,
-            window_padding: WindowPadding { left: 0, right: 0, top: 0, bottom: 0 },
+            window_padding: WindowPadding {
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                grid_valign: GridVAlign::Top,
+            },
             is_minimized: false,
             ime_enabled: false,
             ime_area: Default::default(),
@@ -2117,6 +2146,7 @@ impl WinitWindowWrapper {
             left: window_padding_left,
             right: window_padding_right,
             bottom: window_settings.padding_bottom,
+            grid_valign: window_settings.grid_valign,
         }
     }
 
@@ -2403,7 +2433,14 @@ impl WinitWindowWrapper {
             GridSize::new(round_or_op(v.width, f32::floor), round_or_op(v.height, f32::floor))
         };
 
-        let grid_size = round_or_floor(content_size / grid_scale).try_cast().unwrap_or(min);
+        let mut grid_size: GridSize<u32> =
+            round_or_floor(content_size / grid_scale).try_cast().unwrap_or(min);
+        let (_, extra_rows) = grid_valign_layout(
+            &window_padding,
+            self.content_pixel_size_from_window(window_id).height,
+            grid_scale.height(),
+        );
+        grid_size.height += extra_rows;
 
         grid_size.max(min)
     }
@@ -2422,9 +2459,13 @@ impl WinitWindowWrapper {
             .routes
             .get(&window_id)
             .map(|route| {
-                PixelPos::new(route.state.window_padding.left, route.state.window_padding.top)
-                    .cast()
-                    / grid_scale
+                let padding = route.state.window_padding;
+                let (offset, _) = grid_valign_layout(
+                    &padding,
+                    self.content_pixel_size_from_window(window_id).height,
+                    grid_scale.height(),
+                );
+                PixelPos::new(padding.left as f32, padding.top as f32 + offset) / grid_scale
             })
             .unwrap_or_else(|| PixelPos::new(0, 0).cast() / grid_scale);
         GridRect::<f32>::from_origin_and_size(pos, size)

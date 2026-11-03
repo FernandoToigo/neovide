@@ -14,6 +14,7 @@ pub struct WindowSettings {
     pub confirm_quit: bool,
     pub cursor_hack: bool,
     pub fullscreen: bool,
+    pub grid_valign: GridVAlign,
     pub has_mouse_grid_detection: bool,
     pub hide_mouse_when_typing: bool,
     pub input_ime: bool,
@@ -67,6 +68,7 @@ impl Default for WindowSettings {
             confirm_quit: true,
             cursor_hack: true,
             fullscreen: false,
+            grid_valign: GridVAlign::Top,
             has_mouse_grid_detection: false,
             hide_mouse_when_typing: false,
             input_ime: true,
@@ -109,6 +111,51 @@ impl Default for WindowSettings {
             mouse_move_event: false,
             observed_columns: None,
             observed_lines: None,
+        }
+    }
+}
+
+/// Where the grid goes when the window height is not a multiple of the cell height.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridVAlign {
+    /// The grid starts at the top. The extra pixels stay empty at the bottom.
+    Top,
+    /// The extra pixels stay empty, half at the top and half at the bottom.
+    Center,
+    /// The grid ends at the bottom. The extra pixels stay empty at the top.
+    Bottom,
+    /// Neovim gets one more row. The extra pixels show the lower part of its top row.
+    Fill,
+}
+
+impl ParseFromValue for GridVAlign {
+    fn parse_from_value(&mut self, value: Value) {
+        if value.is_str() {
+            *self = match value.as_str().unwrap() {
+                "top" => GridVAlign::Top,
+                "center" => GridVAlign::Center,
+                "bottom" => GridVAlign::Bottom,
+                "fill" => GridVAlign::Fill,
+                value => {
+                    error_msg!(
+                        "Setting GridVAlign expected one of `top`, `center`, `bottom`, `fill`, but received {value:?}"
+                    );
+                    return;
+                }
+            };
+        } else {
+            error_msg!("Setting GridVAlign expected string, but received {value:?}");
+        }
+    }
+}
+
+impl From<GridVAlign> for Value {
+    fn from(value: GridVAlign) -> Self {
+        match value {
+            GridVAlign::Top => Value::from("top"),
+            GridVAlign::Center => Value::from("center"),
+            GridVAlign::Bottom => Value::from("bottom"),
+            GridVAlign::Fill => Value::from("fill"),
         }
     }
 }
