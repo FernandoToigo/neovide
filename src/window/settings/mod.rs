@@ -126,6 +126,9 @@ pub enum GridVAlign {
     Bottom,
     /// Neovim gets one more row. The extra pixels show the lower part of its top row.
     Fill,
+    /// Neovim gets one more row. The windows at the bottom of the layout show the upper
+    /// part of their last row, and the rows below those windows move up to the bottom edge.
+    Partial,
 }
 
 impl ParseFromValue for GridVAlign {
@@ -136,9 +139,10 @@ impl ParseFromValue for GridVAlign {
                 "center" => GridVAlign::Center,
                 "bottom" => GridVAlign::Bottom,
                 "fill" => GridVAlign::Fill,
+                "partial" => GridVAlign::Partial,
                 value => {
                     error_msg!(
-                        "Setting GridVAlign expected one of `top`, `center`, `bottom`, `fill`, but received {value:?}"
+                        "Setting GridVAlign expected one of `top`, `center`, `bottom`, `fill`, `partial`, but received {value:?}"
                     );
                     return;
                 }
@@ -156,6 +160,7 @@ impl From<GridVAlign> for Value {
             GridVAlign::Center => Value::from("center"),
             GridVAlign::Bottom => Value::from("bottom"),
             GridVAlign::Fill => Value::from("fill"),
+            GridVAlign::Partial => Value::from("partial"),
         }
     }
 }

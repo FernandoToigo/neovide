@@ -20,9 +20,11 @@ use crate::editor::CursorShape;
 use crate::editor::Word;
 use crate::profiling::tracy_plot;
 use crate::profiling::tracy_zone;
+use crate::renderer::BottomBand;
 use crate::renderer::GridRenderer;
 use crate::renderer::RenderedWindow;
 use crate::renderer::animation_utils::*;
+use crate::renderer::rendered_window::BASE_GRID_ID;
 use crate::settings::ParseFromValue;
 use crate::settings::Settings;
 use crate::units::GridPos;
@@ -332,6 +334,7 @@ impl CursorRenderer {
         &mut self,
         grid_scale: GridScale,
         windows: &HashMap<u64, RenderedWindow>,
+        bottom_band: Option<BottomBand>,
     ) {
         let cursor_grid_position = GridPos::<u64>::from(self.cursor.grid_position);
         let cursor_grid_position_f = cursor_grid_position.try_cast().unwrap();
@@ -354,7 +357,15 @@ impl CursorRenderer {
                         - bottom_border,
                 );
 
-                grid * grid_scale
+                let mut pixel = grid * grid_scale;
+                pixel.y += window.pixel_shift_y;
+                if let Some(band) = bottom_band
+                    && window.id == BASE_GRID_ID
+                    && pixel.y > band.split_y - 0.5
+                {
+                    pixel.y -= band.shift;
+                }
+                pixel
             };
 
             let scroll = window.scroll_animation.position;

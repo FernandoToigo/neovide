@@ -225,7 +225,19 @@ impl MouseManager {
         window_details: &WindowDrawDetails,
         editor_state: &EditorState,
     ) -> GridPos<u32> {
-        let relative_position = (window_position - window_details.region.min).to_point();
+        let grid_origin = if window_details.id == 0 {
+            // The full region stands for the whole screen, and Neovim finds the window. A region
+            // that the renderer moved up covers screen rows that are lower than its pixels.
+            let shift = editor_state
+                .window_regions
+                .iter()
+                .rfind(|details| details.region.contains(&window_position))
+                .map_or(0.0, |details| details.pixel_shift_y);
+            PixelPos::new(window_details.region.min.x, window_details.region.min.y + shift)
+        } else {
+            PixelPos::new(window_details.region.min.x, window_details.grid_top)
+        };
+        let relative_position = (window_position - grid_origin).to_point();
         (relative_position / *editor_state.grid_scale)
             .floor()
             .max((0.0, 0.0).into())
@@ -298,10 +310,14 @@ impl MouseManager {
             if self.settings.get::<WindowSettings>().has_mouse_grid_detection {
                 Some(&editor_state.full_region)
             } else {
+                // A grid can have more than one part on the screen. The part under the
+                // pointer has the correct grid top.
+                let id = drag_details.draw_details.id;
                 editor_state
                     .window_regions
                     .iter()
-                    .find(|details| details.id == drag_details.draw_details.id)
+                    .rfind(|details| details.id == id && details.region.contains(&position))
+                    .or_else(|| editor_state.window_regions.iter().find(|details| details.id == id))
             }
         } else {
             if !relative_window_rect.contains(&position) {
@@ -679,6 +695,8 @@ impl MouseManager {
         let full_region = WindowDrawDetails {
             id: 0,
             region: renderer.window_regions.first().map_or(PixelRect::ZERO, |v| v.region),
+            grid_top: renderer.window_regions.first().map_or(0.0, |v| v.grid_top),
+            pixel_shift_y: 0.0,
             grid_size: renderer.window_regions.first().map_or(GridSize::ZERO, |v| v.grid_size),
             window_type: crate::editor::WindowType::Editor,
         };

@@ -158,6 +158,7 @@ fn grid_valign_layout(padding: &WindowPadding, inner_height: u32, cell_height: f
         GridVAlign::Center => ((leftover / 2.0).floor(), 0),
         GridVAlign::Bottom => (leftover, 0),
         GridVAlign::Fill => (leftover - cell_height, 1),
+        GridVAlign::Partial => (0.0, 1),
     }
 }
 

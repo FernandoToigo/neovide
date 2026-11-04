@@ -28,6 +28,7 @@ use keyboard_manager::KeyboardManager;
 pub use mouse_manager::MessageSelectionEvent;
 use mouse_manager::MouseManager;
 pub use mouse_manager::OverlayEvent;
+pub use settings::GridVAlign;
 pub use settings::ThemeSettings;
 pub use settings::WindowSettings;
 pub use settings::WindowSettingsChanged;

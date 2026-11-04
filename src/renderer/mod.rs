@@ -76,6 +76,7 @@ use crate::profiling::tracy_zone;
 use crate::renderer::fonts::font_options::PixelGeometry;
 use crate::renderer::rendered_layer::FloatingLayer;
 use crate::renderer::rendered_layer::group_windows;
+use crate::renderer::rendered_window::BASE_GRID_ID;
 use crate::settings::*;
 use crate::units::GridPos;
 use crate::units::GridRect;
@@ -85,6 +86,7 @@ use crate::units::PixelPos;
 use crate::units::PixelRect;
 use crate::units::to_skia_rect;
 use crate::window::EventPayload;
+use crate::window::GridVAlign;
 use crate::window::ShouldRender;
 
 const MESSAGE_SELECTION_ALPHA: f32 = 0.35;
@@ -214,6 +216,17 @@ pub struct Renderer {
     message_selection: Option<MessageSelection>,
     startup_messages: Vec<StartupMessage>,
     startup_message_ui_restored: bool,
+    bottom_band: Option<BottomBand>,
+}
+
+/// The rows below the windows at the bottom of the layout, with GridVAlign::Partial. Neovim
+/// has one row more than fits, so these rows move up over the last row of those windows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BottomBand {
+    /// The pixel y where the band starts.
+    pub split_y: f32,
+    /// The number of pixels that the band moves up.
+    pub shift: f32,
 }
 
 /// Results of processing the draw commands from the command channel.
@@ -264,6 +277,7 @@ impl Renderer {
             message_selection: None,
             startup_messages: Vec::new(),
             startup_message_ui_restored: false,
+            bottom_band: None,
         }
     }
 
@@ -295,6 +309,26 @@ impl Renderer {
         root_canvas.save();
         root_canvas.reset_matrix();
         root_canvas.clip_rect(to_skia_rect(content_region), None, Some(false));
+
+        for window in self.rendered_windows.values_mut() {
+            window.pixel_shift_y = 0.0;
+        }
+        let bottom_band = if window_settings.grid_valign == GridVAlign::Partial {
+            find_bottom_band(&self.rendered_windows, grid_scale, content_region)
+        } else {
+            None
+        };
+        self.bottom_band = bottom_band;
+        if let Some(band) = bottom_band {
+            // A float that reaches into the band moves up with it, so that it stays complete.
+            for window in self.rendered_windows.values_mut() {
+                if window.anchor_info.is_some()
+                    && window.pixel_region(grid_scale).max.y > band.split_y + 0.5
+                {
+                    window.pixel_shift_y = -band.shift;
+                }
+            }
+        }
 
         let (root_windows, floating_layers) = {
             let (mut root_windows, mut floating_windows): (
@@ -371,18 +405,53 @@ impl Renderer {
         let max_root_y = max_window_max_y(&root_windows, grid_scale);
         let root_window_regions = root_windows
             .into_iter()
-            .map(|window| {
+            .flat_map(|window| {
                 let region = window.pixel_region(grid_scale);
                 let rightmost_root_window = is_rightmost_window_edge(region.max.x, max_root_x);
                 let bottommost_root_window = is_bottommost_window_edge(region.max.y, max_root_y);
-                window.draw(
-                    root_canvas,
-                    default_background,
-                    grid_scale,
-                    Some(*content_region),
-                    rightmost_root_window,
-                    bottommost_root_window,
-                )
+                let draw = |window: &mut RenderedWindow, clip: Option<PixelRect<f32>>| {
+                    root_canvas.save();
+                    if let Some(clip) = clip {
+                        root_canvas.clip_rect(to_skia_rect(&clip), None, Some(false));
+                    }
+                    let mut details = window.draw(
+                        root_canvas,
+                        default_background,
+                        grid_scale,
+                        Some(*content_region),
+                        rightmost_root_window,
+                        bottommost_root_window,
+                    );
+                    root_canvas.restore();
+                    if let Some(clip) = clip {
+                        details.region.min.y = details.region.min.y.max(clip.min.y);
+                        details.region.max.y = details.region.max.y.min(clip.max.y);
+                    }
+                    details
+                };
+
+                let Some(band) = bottom_band else {
+                    return vec![draw(window, None)];
+                };
+                let above = PixelRect::new(
+                    content_region.min,
+                    PixelPos::new(content_region.max.x, band.split_y),
+                );
+                if window.id == BASE_GRID_ID {
+                    let below = PixelRect::new(
+                        PixelPos::new(content_region.min.x, band.split_y),
+                        content_region.max,
+                    );
+                    let upper_part = draw(window, Some(above));
+                    window.pixel_shift_y = -band.shift;
+                    let band_part = draw(window, Some(below));
+                    window.pixel_shift_y = 0.0;
+                    vec![upper_part, band_part]
+                } else if (region.max.y - (band.split_y + band.shift)).abs() < 0.5 {
+                    vec![draw(window, Some(above))]
+                } else {
+                    vec![draw(window, None)]
+                }
             })
             .collect_vec();
 
@@ -504,7 +573,7 @@ impl Renderer {
 
         let windows = &self.rendered_windows;
         let grid_scale = self.grid_renderer.grid_scale;
-        self.cursor_renderer.update_cursor_destination(grid_scale, windows);
+        self.cursor_renderer.update_cursor_destination(grid_scale, windows, self.bottom_band);
 
         animating |= self.cursor_renderer.animate(&self.current_mode, &self.grid_renderer, dt);
 
@@ -734,6 +803,31 @@ impl Renderer {
             DEFAULT_GRID_SIZE
         }
     }
+}
+
+/// Finds the band for GridVAlign::Partial: the base grid ends below the content region, and the
+/// band is the part of the base grid below the lowest editor window.
+fn find_bottom_band(
+    windows: &HashMap<u64, RenderedWindow>,
+    grid_scale: GridScale,
+    content_region: &PixelRect<f32>,
+) -> Option<BottomBand> {
+    let base = windows.get(&BASE_GRID_ID).filter(|window| !window.hidden)?;
+    let shift = base.pixel_region(grid_scale).max.y - content_region.max.y;
+    if shift < 0.5 || shift >= grid_scale.height() {
+        return None;
+    }
+    let windows_bottom = windows
+        .values()
+        .filter(|window| {
+            !window.hidden
+                && window.id != BASE_GRID_ID
+                && window.anchor_info.is_none()
+                && window.window_type == WindowType::Editor
+        })
+        .map(|window| window.pixel_region(grid_scale).max.y)
+        .fold(f32::NEG_INFINITY, f32::max);
+    windows_bottom.is_finite().then_some(BottomBand { split_y: windows_bottom - shift, shift })
 }
 
 pub fn is_rightmost_window_edge(region_max_x: f32, max_x: f32) -> bool {

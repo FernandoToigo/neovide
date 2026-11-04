@@ -107,6 +107,8 @@ impl FloatingLayer<'_> {
             ret.push(WindowDrawDetails {
                 id: window.id,
                 region: regions[i],
+                grid_top: pixel_regions[i].min.y,
+                pixel_shift_y: window.pixel_shift_y,
                 grid_size: window.grid_size,
                 window_type: window.window_type,
             });

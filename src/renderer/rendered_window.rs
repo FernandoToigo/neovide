@@ -161,11 +161,19 @@ pub struct RenderedWindow {
 
     pub scroll_animation: CriticallyDampedSpringAnimation,
     pub scroll_animation_delta: f32,
+
+    /// Pixels to move the window down when it is drawn. The renderer sets it each frame.
+    pub pixel_shift_y: f32,
 }
 #[derive(Clone, Debug)]
 pub struct WindowDrawDetails {
     pub id: u64,
     pub region: PixelRect<f32>,
+    /// The pixel y of the first grid row. It is above region.min.y when the region shows
+    /// only a lower part of the grid.
+    pub grid_top: f32,
+    /// The pixels that the renderer moved this region down from its grid position.
+    pub pixel_shift_y: f32,
     pub grid_size: GridSize<u32>,
     pub window_type: WindowType,
 }
@@ -201,6 +209,7 @@ impl RenderedWindow {
 
             scroll_animation: CriticallyDampedSpringAnimation::new(),
             scroll_animation_delta: 0.0,
+            pixel_shift_y: 0.0,
         }
     }
 
@@ -208,7 +217,8 @@ impl RenderedWindow {
         // Round to the same fraction as the desination to avoid glitches when rendering box
         // characters.
         let fract = (self.grid_destination * grid_scale).fract();
-        let pos = (self.grid_current_position * grid_scale - fract).round() + fract.to_vector();
+        let mut pos = (self.grid_current_position * grid_scale - fract).round() + fract.to_vector();
+        pos.y += self.pixel_shift_y;
         PixelRect::<f32>::from_origin_and_size(pos.into(), self.grid_size() * grid_scale)
     }
 
@@ -415,6 +425,8 @@ impl RenderedWindow {
             return WindowDrawDetails {
                 id: self.id,
                 region: pixel_region_box,
+                grid_top: pixel_region_box.min.y,
+                pixel_shift_y: self.pixel_shift_y,
                 grid_size: self.grid_size,
                 window_type: self.window_type,
             };
@@ -441,6 +453,8 @@ impl RenderedWindow {
         WindowDrawDetails {
             id: self.id,
             region: window_region_box,
+            grid_top: pixel_region_box.min.y,
+            pixel_shift_y: self.pixel_shift_y,
             grid_size: self.grid_size,
             window_type: self.window_type,
         }
