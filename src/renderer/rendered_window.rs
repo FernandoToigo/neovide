@@ -845,16 +845,17 @@ impl RenderedWindow {
                     self.grid_destination = grid_position;
                 }
 
+                // Neovim sends the position again with the same size, for example when the
+                // last float on the window closes. The lines and the scroll animation must
+                // then stay as they are.
                 let height = new_grid_size.height as usize;
-                self.actual_lines.resize(height, None);
-                self.grid_size = new_grid_size;
+                if new_grid_size != self.grid_size || height != self.actual_lines.len() {
+                    self.actual_lines.resize(height, None);
+                    self.grid_size = new_grid_size;
 
-                self.scrollback_lines.resize(2 * height, None);
-                self.scrollback_lines.clone_from_iter(&self.actual_lines);
-                self.scroll_delta = 0;
-
-                if height != self.actual_lines.len() {
-                    self.scroll_animation.reset();
+                    self.scrollback_lines.resize(2 * height, None);
+                    self.scrollback_lines.clone_from_iter(&self.actual_lines);
+                    self.scroll_delta = 0;
                 }
 
                 self.anchor_info = anchor_info;
@@ -916,7 +917,9 @@ impl RenderedWindow {
             }
             WindowDrawCommand::Viewport { scroll_delta } => {
                 log::trace!("Handling Viewport {}", self.id);
-                self.scroll_delta = scroll_delta.round() as isize;
+                // The delta counts from the previous win_viewport event, and Neovim can send
+                // more than one in the same flush.
+                self.scroll_delta += scroll_delta.round() as isize;
             }
             WindowDrawCommand::ViewportMargins { top, bottom, .. } => {
                 self.viewport_margins = ViewportMargins { top, bottom }
@@ -1361,6 +1364,53 @@ mod tests {
 
     fn range(top_line: f64, bottom_line: f64, line_count: f64) -> ScrollRange {
         ScrollRange { top_line, bottom_line, line_count }
+    }
+
+    fn positioned_window(margin_top: u64) -> RenderedWindow {
+        let mut window = RenderedWindow::new(2);
+        window.handle_window_draw_command(position_command());
+        window.handle_window_draw_command(WindowDrawCommand::ViewportMargins {
+            top: margin_top,
+            bottom: 0,
+            left: 0,
+            right: 0,
+        });
+        window.flush(&RendererSettings::default());
+        window
+    }
+
+    fn position_command() -> WindowDrawCommand {
+        WindowDrawCommand::Position {
+            grid_position: (0.0, 0.0),
+            grid_size: (80, 24),
+            anchor_info: None,
+            window_type: WindowType::Editor,
+        }
+    }
+
+    #[test]
+    fn viewport_deltas_in_one_flush_add_up() {
+        let mut window = positioned_window(0);
+
+        // A scroll of one line up, then a second report of the same viewport.
+        window.handle_window_draw_command(WindowDrawCommand::Viewport { scroll_delta: -1.0 });
+        window.handle_window_draw_command(WindowDrawCommand::Viewport { scroll_delta: 0.0 });
+        window.flush(&RendererSettings::default());
+
+        assert_eq!(window.scroll_animation.position, 1.0);
+    }
+
+    #[test]
+    fn same_position_keeps_the_scroll_animation_of_a_window_with_a_winbar() {
+        let mut window = positioned_window(1);
+        window.handle_window_draw_command(WindowDrawCommand::Viewport { scroll_delta: -1.0 });
+        window.flush(&RendererSettings::default());
+
+        // Neovim sends the position again when the last float on the window closes.
+        window.handle_window_draw_command(position_command());
+        window.flush(&RendererSettings::default());
+
+        assert_eq!(window.scroll_animation.position, 1.0);
     }
 
     #[test]
