@@ -88,6 +88,45 @@ pub enum WindowDrawCommand {
         right: u64,
     },
     SortOrder(SortOrder),
+    ScrollRange(ScrollRange),
+}
+
+/// The buffer lines that a window shows, from win_viewport. The lines are zero-based, and
+/// `bottom_line` is one past the last line that the window shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollRange {
+    pub top_line: f64,
+    pub bottom_line: f64,
+    pub line_count: f64,
+}
+
+/// The look of the scrollbar that the renderer draws at the right edge of each window.
+#[derive(Clone, Copy, Debug)]
+pub struct ScrollbarStyle {
+    /// The width of the thumb, in physical pixels.
+    pub width: f32,
+    pub color: Color4f,
+}
+
+/// Returns the top and the height of the thumb, in pixels from the top of the track. There is
+/// no thumb when the window shows the whole buffer. `scroll_offset` is the line offset of the
+/// scroll animation, so the thumb moves with the text.
+pub fn scrollbar_thumb(
+    range: ScrollRange,
+    scroll_offset: f64,
+    track_height: f32,
+    min_height: f32,
+) -> Option<(f32, f32)> {
+    let line_count = range.line_count.max(1.0);
+    let visible = (range.bottom_line.min(line_count) - range.top_line).clamp(0.0, line_count);
+    let hidden = line_count - visible;
+    if hidden <= 0.0 || track_height <= 0.0 {
+        return None;
+    }
+    let track_height = track_height as f64;
+    let height = (track_height * visible / line_count).max(min_height as f64).min(track_height);
+    let top = (range.top_line + scroll_offset).clamp(0.0, hidden);
+    Some((((track_height - height) * top / hidden) as f32, height as f32))
 }
 
 struct RenderedLine {
@@ -161,6 +200,7 @@ pub struct RenderedWindow {
 
     pub scroll_animation: CriticallyDampedSpringAnimation,
     pub scroll_animation_delta: f32,
+    pub scroll_range: Option<ScrollRange>,
 
     /// Pixels to move the window down when it is drawn. The renderer sets it each frame.
     pub pixel_shift_y: f32,
@@ -209,6 +249,7 @@ impl RenderedWindow {
 
             scroll_animation: CriticallyDampedSpringAnimation::new(),
             scroll_animation_delta: 0.0,
+            scroll_range: None,
             pixel_shift_y: 0.0,
         }
     }
@@ -885,6 +926,9 @@ impl RenderedWindow {
                     anchor_info.sort_order = sort_order;
                 }
             }
+            WindowDrawCommand::ScrollRange(range) => {
+                self.scroll_range = Some(range);
+            }
             _ => {}
         };
     }
@@ -1010,6 +1054,29 @@ impl RenderedWindow {
     /// Returns the rect containing the region of the window that does not have borders above and
     /// below it. Note: This does not take into account the borders on the left and the right of
     /// the window.
+    /// Draws the scrollbar thumb at the right edge of the scrollable rows. The winbar and the
+    /// other viewport margins stay out of the track.
+    pub fn draw_scrollbar(&self, canvas: &Canvas, grid_scale: GridScale, style: &ScrollbarStyle) {
+        let Some(range) = self.scroll_range else {
+            return;
+        };
+        let track = self.inner_region(self.pixel_region(grid_scale), grid_scale);
+        let Some((top, height)) = scrollbar_thumb(
+            range,
+            self.scroll_animation.position as f64,
+            track.height(),
+            grid_scale.height(),
+        ) else {
+            return;
+        };
+        let width = style.width.min(track.width());
+        let thumb = Rect::from_xywh(track.right - width, track.top + top, width, height);
+        let radius = width / 2.0;
+        let mut paint = Paint::new(style.color, None);
+        paint.set_anti_alias(true);
+        canvas.draw_round_rect(thumb, radius, radius, &paint);
+    }
+
     pub fn inner_region(&self, pixel_region: PixelRect<f32>, grid_scale: GridScale) -> Rect {
         let line_height = grid_scale.height();
 
@@ -1291,6 +1358,49 @@ mod tests {
     use crate::units::PixelSize;
 
     fn grid_scale() -> GridScale { GridScale::new(PixelSize::new(8.0, 16.0)) }
+
+    fn range(top_line: f64, bottom_line: f64, line_count: f64) -> ScrollRange {
+        ScrollRange { top_line, bottom_line, line_count }
+    }
+
+    #[test]
+    fn scrollbar_thumb_is_absent_when_the_buffer_fits() {
+        assert_eq!(scrollbar_thumb(range(0.0, 10.0, 10.0), 0.0, 400.0, 16.0), None);
+        // Filler lines past the end give a bottom line of one more than the line count.
+        assert_eq!(scrollbar_thumb(range(0.0, 11.0, 10.0), 0.0, 400.0, 16.0), None);
+    }
+
+    #[test]
+    fn scrollbar_thumb_covers_the_visible_part() {
+        // 25 of 100 lines: a quarter of the track.
+        assert_eq!(scrollbar_thumb(range(0.0, 25.0, 100.0), 0.0, 400.0, 16.0), Some((0.0, 100.0)));
+        assert_eq!(
+            scrollbar_thumb(range(75.0, 100.0, 100.0), 0.0, 400.0, 16.0),
+            Some((300.0, 100.0))
+        );
+        let (top, _) = scrollbar_thumb(range(37.5, 62.5, 100.0), 0.0, 400.0, 16.0).unwrap();
+        assert_eq!(top, 150.0);
+    }
+
+    #[test]
+    fn scrollbar_thumb_follows_the_scroll_animation() {
+        // After a scroll of 10 lines down, the animation starts 10 lines back.
+        let start = scrollbar_thumb(range(10.0, 35.0, 100.0), -10.0, 400.0, 16.0);
+        assert_eq!(start, scrollbar_thumb(range(0.0, 25.0, 100.0), 0.0, 400.0, 16.0));
+        let (middle, _) = scrollbar_thumb(range(10.0, 35.0, 100.0), -5.0, 400.0, 16.0).unwrap();
+        assert_eq!(middle, 20.0);
+    }
+
+    #[test]
+    fn scrollbar_thumb_keeps_its_minimum_height_and_stays_in_the_track() {
+        let (top, height) =
+            scrollbar_thumb(range(9990.0, 10000.0, 10000.0), 0.0, 400.0, 16.0).unwrap();
+        assert_eq!(height, 16.0);
+        assert_eq!(top, 384.0);
+        // A view past the end, for example after zt on the last line.
+        let (top, _) = scrollbar_thumb(range(9999.0, 10001.0, 10000.0), 3.0, 400.0, 16.0).unwrap();
+        assert_eq!(top, 384.0);
+    }
 
     fn rendered_window() -> RenderedWindow {
         let mut window = RenderedWindow::new(BASE_GRID_ID);

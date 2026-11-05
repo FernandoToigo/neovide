@@ -29,6 +29,7 @@ use itertools::Itertools;
 use progress_bar::ProgressBar;
 use progress_bar::ProgressBarSettings;
 pub use rendered_window::RenderedWindow;
+use rendered_window::ScrollbarStyle;
 pub use rendered_window::WindowDrawCommand;
 pub use rendered_window::WindowDrawDetails;
 use skia_safe::Canvas;
@@ -133,6 +134,13 @@ pub struct RendererSettings {
     text_contrast: f32,
     experimental_layer_grouping: bool,
     pixel_geometry: PixelGeometry,
+    /// Draws a scrollbar thumb at the right edge of each window. It moves with the scroll
+    /// animation.
+    scrollbar: bool,
+    /// The width of the scrollbar thumb, in logical pixels.
+    scrollbar_width: f32,
+    /// The opacity of the scrollbar thumb, which has the default foreground colour.
+    scrollbar_opacity: f32,
 }
 
 impl Default for RendererSettings {
@@ -156,6 +164,9 @@ impl Default for RendererSettings {
             text_contrast: 0.5,
             experimental_layer_grouping: false,
             pixel_geometry: PixelGeometry::default(),
+            scrollbar: false,
+            scrollbar_width: 4.0,
+            scrollbar_opacity: 0.25,
         }
     }
 }
@@ -401,6 +412,14 @@ impl Renderer {
         };
 
         let settings = self.settings.get::<RendererSettings>();
+        let scrollbar = settings.scrollbar.then(|| {
+            let foreground = self.grid_renderer.default_style.colors.foreground;
+            let color = foreground.unwrap_or(Color4f::new(1.0, 1.0, 1.0, 1.0));
+            ScrollbarStyle {
+                width: settings.scrollbar_width * self.os_scale_factor as f32,
+                color: Color4f { a: settings.scrollbar_opacity.clamp(0.0, 1.0), ..color },
+            }
+        });
         let max_root_x = max_window_max_x(&root_windows, grid_scale);
         let max_root_y = max_window_max_y(&root_windows, grid_scale);
         let root_window_regions = root_windows
@@ -422,6 +441,11 @@ impl Renderer {
                         rightmost_root_window,
                         bottommost_root_window,
                     );
+                    if let Some(style) = &scrollbar
+                        && window.id != BASE_GRID_ID
+                    {
+                        window.draw_scrollbar(root_canvas, grid_scale, style);
+                    }
                     root_canvas.restore();
                     if let Some(clip) = clip {
                         details.region.min.y = details.region.min.y.max(clip.min.y);

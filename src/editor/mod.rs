@@ -60,6 +60,7 @@ use crate::profiling::tracy_zone;
 use crate::renderer::DrawCommand;
 use crate::renderer::WindowDrawCommand;
 use crate::renderer::rendered_window::BASE_GRID_ID;
+use crate::renderer::rendered_window::ScrollRange;
 use crate::running_tracker::RunningTracker;
 use crate::settings::Settings;
 use crate::units::GridRect;
@@ -542,6 +543,16 @@ impl Editor {
                     self.draw_command_batcher.queue(DrawCommand::Window {
                         grid_id: grid,
                         command: WindowDrawCommand::Viewport { scroll_delta },
+                    });
+                }
+                if let Some(line_count) = line_count {
+                    self.draw_command_batcher.queue(DrawCommand::Window {
+                        grid_id: grid,
+                        command: WindowDrawCommand::ScrollRange(ScrollRange {
+                            top_line,
+                            bottom_line,
+                            line_count,
+                        }),
                     });
                 }
 
