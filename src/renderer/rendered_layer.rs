@@ -175,26 +175,37 @@ impl FloatingLayer<'_> {
         // The light angle is specified in degrees from the vertical, so we first convert them
         // to radians and then use sin/cos to get the y and z components of the light
         let light_angle_radians = settings.light_angle_degrees.to_radians();
-        draw_shadow(
+        cast_shadow(
             root_canvas,
             path,
-            // Specifies how far from the root canvas the shadow casting rect is. We just use
-            // the z component here to set it a constant distance away.
-            Point3::new(0., 0., settings.floating_z_height),
-            // Because we use the DIRECTIONAL_LIGHT shadow flag, this specifies the angle that
-            // the light is coming from.
+            settings.floating_z_height,
             Point3::new(0., -light_angle_radians.sin(), light_angle_radians.cos()),
-            // This is roughly equal to the apparent radius of the light .
-            5.,
-            Color::from_argb((0.03 * 255.) as u8, 0, 0, 0),
-            Color::from_argb((0.35 * 255.) as u8, 0, 0, 0),
-            // Directional Light flag is necessary to make the shadow render consistently
-            // across various sizes of floating windows. It effects how the light direction is
-            // processed.
-            Some(ShadowFlags::DIRECTIONAL_LIGHT),
         );
         root_canvas.restore();
     }
+}
+
+/// Draws the shadow of `path` on the canvas below it. `light` is the direction from the path to
+/// the light. The caller clips the canvas, so that the shadow stays outside of the path.
+pub(super) fn cast_shadow(root_canvas: &Canvas, path: &Path, z_height: f32, light: Point3) {
+    draw_shadow(
+        root_canvas,
+        path,
+        // Specifies how far from the root canvas the shadow casting rect is. We just use
+        // the z component here to set it a constant distance away.
+        Point3::new(0., 0., z_height),
+        // Because we use the DIRECTIONAL_LIGHT shadow flag, this specifies the angle that
+        // the light is coming from.
+        light,
+        // This is roughly equal to the apparent radius of the light .
+        5.,
+        Color::from_argb((0.03 * 255.) as u8, 0, 0, 0),
+        Color::from_argb((0.35 * 255.) as u8, 0, 0, 0),
+        // Directional Light flag is necessary to make the shadow render consistently
+        // across various sizes of floating windows. It effects how the light direction is
+        // processed.
+        Some(ShadowFlags::DIRECTIONAL_LIGHT),
+    );
 }
 
 fn get_window_group(windows: &mut Vec<LayerWindow>, index: usize) -> usize {

@@ -12,6 +12,7 @@ use crate::editor::grid::CharacterGrid;
 use crate::editor::style::Style;
 use crate::renderer::WindowDrawCommand;
 use crate::renderer::box_drawing;
+use crate::renderer::panel_shadow::PanelShadow;
 #[cfg(target_os = "macos")]
 use crate::renderer::rendered_window::BASE_GRID_ID;
 use crate::units::GridRect;
@@ -140,6 +141,8 @@ pub struct Window {
     viewport: Option<WindowViewport>,
     viewport_top_margin: u64,
     viewport_bottom_margin: u64,
+    /// The shadow side that the renderer has for this grid.
+    pub panel_shadow: Option<PanelShadow>,
 }
 
 impl Window {
@@ -162,6 +165,7 @@ impl Window {
             viewport: None,
             viewport_top_margin: 0,
             viewport_bottom_margin: 0,
+            panel_shadow: None,
         };
         window.send_updated_position(draw_command_batcher);
         window
@@ -204,6 +208,9 @@ impl Window {
     pub fn viewport(&self) -> Option<WindowViewport> { self.viewport }
 
     pub fn set_viewport(&mut self, viewport: WindowViewport) { self.viewport = Some(viewport); }
+
+    /// The handle of the Neovim window that the last win_pos put on this grid.
+    pub fn neovim_window(&self) -> Option<u64> { self.tiled_layout.map(|layout| layout.window) }
 
     #[cfg(target_os = "macos")]
     pub fn clear_viewport_for_window(&mut self, window: u64) {
@@ -651,6 +658,7 @@ mod tests {
             viewport: None,
             viewport_top_margin: 0,
             viewport_bottom_margin: 0,
+            panel_shadow: None,
         }
     }
 
@@ -902,6 +910,7 @@ mod tests {
             viewport: None,
             viewport_top_margin: 0,
             viewport_bottom_margin: 0,
+            panel_shadow: None,
         };
 
         assert_eq!(window.get_cursor_grid_cell(0, 0), (" ".to_string(), None, false));

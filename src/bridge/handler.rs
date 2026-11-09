@@ -37,6 +37,7 @@ use crate::bridge::parse_progress_bar_event;
 use crate::bridge::send_ui;
 use crate::clipboard::ClipboardHandle;
 use crate::errors::ResultPanicExplanation;
+use crate::renderer::panel_shadow::PanelShadow;
 use crate::running_tracker::RunningTracker;
 use crate::settings::FontConfigState;
 use crate::settings::Settings;
@@ -406,6 +407,13 @@ impl Handler for NeovimHandler {
             "neovide.exec_detach_handler" => {
                 send_ui(ParallelCommand::Quit, self);
             }
+            "neovide.window_shadow" => match parse_window_shadow_args(&arguments) {
+                Some((window, side)) => {
+                    let _ =
+                        self.redraw_event_sender.send(RedrawEvent::PanelShadow { window, side });
+                }
+                None => warn!("neovide.window_shadow called with invalid arguments: {arguments:?}"),
+            },
             "neovide.set_redraw" => {
                 if let Some(value) = arguments.first() {
                     let value = value.as_bool().unwrap_or(true);
@@ -460,6 +468,16 @@ fn parse_force_click_args(
     let kind = ForceClickKind::from(kind_str);
 
     Some((col, row, entity, guifont, kind))
+}
+
+/// Reads `{window, side}`. A nil or missing side removes the shadow.
+fn parse_window_shadow_args(arguments: &[Value]) -> Option<(u64, Option<PanelShadow>)> {
+    let window = arguments.first()?.as_u64().filter(|id| *id > 0)?;
+    let side = match arguments.get(1) {
+        None | Some(Value::Nil) => None,
+        Some(side) => Some(PanelShadow::parse(side.as_str()?)?),
+    };
+    Some((window, side))
 }
 
 #[cfg(target_os = "macos")]

@@ -17,6 +17,7 @@ use crate::editor::CursorMode;
 use crate::editor::CursorShape;
 use crate::editor::Style;
 use crate::editor::UnderlineStyle;
+use crate::renderer::panel_shadow::PanelShadow;
 use crate::window::ProgressBarUpdate;
 use crate::window::UserEvent;
 
@@ -485,6 +486,12 @@ pub enum RedrawEvent {
         metadata: Option<ScrollbarWindowMetadata>,
     },
     NeovideIntroBannerAllowed(bool),
+    /// From `neovide.window_shadow`: the side where a tiled Neovim window casts a shadow, or
+    /// no shadow.
+    PanelShadow {
+        window: u64,
+        side: Option<PanelShadow>,
+    },
 }
 
 /// Buffer identity and scrollbar eligibility reported for a Neovim window.

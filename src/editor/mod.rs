@@ -59,6 +59,7 @@ use crate::profiling::tracy_named_frame;
 use crate::profiling::tracy_zone;
 use crate::renderer::DrawCommand;
 use crate::renderer::WindowDrawCommand;
+use crate::renderer::panel_shadow::PanelShadow;
 use crate::renderer::rendered_window::BASE_GRID_ID;
 use crate::renderer::rendered_window::ScrollRange;
 use crate::running_tracker::RunningTracker;
@@ -178,6 +179,8 @@ pub struct Editor {
     settings: Arc<Settings>,
     composition_order: u64,
     intro_message_extender: IntroMessageExtender,
+    /// The shadow sides from `neovide.window_shadow`, by Neovim window handle.
+    panel_shadows: HashMap<u64, PanelShadow>,
     #[cfg(target_os = "macos")]
     match_paren_highlight_ids: HashSet<u64>,
     #[cfg(target_os = "macos")]
@@ -229,6 +232,23 @@ impl Editor {
             route_id,
             composition_order: 0,
             intro_message_extender: IntroMessageExtender::new(),
+            panel_shadows: HashMap::new(),
+        }
+    }
+
+    /// Sends the shadow side of each grid to the renderer when it changed. A grid can show
+    /// another Neovim window after a win_pos, so this runs at each flush.
+    fn queue_panel_shadows(&mut self) {
+        for (grid, window) in self.windows.iter_mut() {
+            let shadow =
+                window.neovim_window().and_then(|handle| self.panel_shadows.get(&handle).copied());
+            if window.panel_shadow != shadow {
+                window.panel_shadow = shadow;
+                self.draw_command_batcher.queue(DrawCommand::Window {
+                    grid_id: *grid,
+                    command: WindowDrawCommand::PanelShadow(shadow),
+                });
+            }
         }
     }
 
@@ -312,6 +332,7 @@ impl Editor {
                 tracy_named_frame!("neovim draw command flush");
                 self.send_cursor_info();
                 self.advance_startup_capture_on_flush();
+                self.queue_panel_shadows();
 
                 #[cfg(target_os = "macos")]
                 {
@@ -587,6 +608,14 @@ impl Editor {
                     metadata,
                 );
             }
+            RedrawEvent::PanelShadow { window, side } => match side {
+                Some(side) => {
+                    self.panel_shadows.insert(window, side);
+                }
+                None => {
+                    self.panel_shadows.remove(&window);
+                }
+            },
             RedrawEvent::NeovideIntroBannerAllowed(allowed) => {
                 self.intro_message_extender.set_sponsor_allowed(
                     allowed,

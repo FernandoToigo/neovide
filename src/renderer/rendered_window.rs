@@ -26,6 +26,7 @@ use crate::profiling::tracy_zone;
 use crate::renderer::GridRenderer;
 use crate::renderer::RendererSettings;
 use crate::renderer::animation_utils::*;
+use crate::renderer::panel_shadow::PanelShadow;
 use crate::settings::Settings;
 use crate::units::GridPos;
 use crate::units::GridRect;
@@ -89,6 +90,7 @@ pub enum WindowDrawCommand {
     },
     SortOrder(SortOrder),
     ScrollRange(ScrollRange),
+    PanelShadow(Option<PanelShadow>),
 }
 
 /// The buffer lines that a window shows, from win_viewport. The lines are zero-based, and
@@ -201,6 +203,8 @@ pub struct RenderedWindow {
     pub scroll_animation: CriticallyDampedSpringAnimation,
     pub scroll_animation_delta: f32,
     pub scroll_range: Option<ScrollRange>,
+    /// The side where this tiled window casts a shadow, when Neovim marks it as a panel.
+    pub panel_shadow: Option<PanelShadow>,
 
     /// Pixels to move the window down when it is drawn. The renderer sets it each frame.
     pub pixel_shift_y: f32,
@@ -250,6 +254,7 @@ impl RenderedWindow {
             scroll_animation: CriticallyDampedSpringAnimation::new(),
             scroll_animation_delta: 0.0,
             scroll_range: None,
+            panel_shadow: None,
             pixel_shift_y: 0.0,
         }
     }
@@ -931,6 +936,9 @@ impl RenderedWindow {
             }
             WindowDrawCommand::ScrollRange(range) => {
                 self.scroll_range = Some(range);
+            }
+            WindowDrawCommand::PanelShadow(shadow) => {
+                self.panel_shadow = shadow;
             }
             _ => {}
         };

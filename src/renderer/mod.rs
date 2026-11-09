@@ -4,6 +4,7 @@ pub mod cursor_renderer;
 pub mod fonts;
 pub mod grid_renderer;
 pub mod opengl;
+pub mod panel_shadow;
 pub mod profiler;
 pub mod progress_bar;
 mod rendered_layer;
@@ -75,6 +76,7 @@ use crate::profiling::tracy_named_frame;
 use crate::profiling::tracy_plot;
 use crate::profiling::tracy_zone;
 use crate::renderer::fonts::font_options::PixelGeometry;
+use crate::renderer::panel_shadow::draw_panel_shadows;
 use crate::renderer::rendered_layer::FloatingLayer;
 use crate::renderer::rendered_layer::group_windows;
 use crate::renderer::rendered_window::BASE_GRID_ID;
@@ -141,6 +143,11 @@ pub struct RendererSettings {
     scrollbar_width: f32,
     /// The opacity of the scrollbar thumb, which has the default foreground colour.
     scrollbar_opacity: f32,
+    /// The width of the line where the shadow of a panel starts, in logical pixels. 0 draws no
+    /// line.
+    panel_shadow_line_width: f32,
+    /// The opacity of that line, which is black.
+    panel_shadow_line_opacity: f32,
 }
 
 impl Default for RendererSettings {
@@ -167,6 +174,8 @@ impl Default for RendererSettings {
             scrollbar: false,
             scrollbar_width: 4.0,
             scrollbar_opacity: 0.25,
+            panel_shadow_line_width: 1.0,
+            panel_shadow_line_opacity: 0.5,
         }
     }
 }
@@ -420,6 +429,10 @@ impl Renderer {
                 color: Color4f { a: settings.scrollbar_opacity.clamp(0.0, 1.0), ..color },
             }
         });
+        let panels = root_windows
+            .iter()
+            .filter_map(|window| Some((window.pixel_region(grid_scale), window.panel_shadow?)))
+            .collect_vec();
         let max_root_x = max_window_max_x(&root_windows, grid_scale);
         let max_root_y = max_window_max_y(&root_windows, grid_scale);
         let root_window_regions = root_windows
@@ -478,6 +491,19 @@ impl Renderer {
                 }
             })
             .collect_vec();
+
+        let line_width = match settings.panel_shadow_line_width {
+            width if width > 0.0 => (width * self.os_scale_factor as f32).round().max(1.0),
+            _ => 0.0,
+        };
+        draw_panel_shadows(
+            root_canvas,
+            &panels,
+            &settings,
+            grid_scale,
+            *content_region,
+            line_width,
+        );
 
         let floating_window_regions = floating_layers
             .into_iter()
