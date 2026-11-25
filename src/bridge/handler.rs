@@ -414,6 +414,9 @@ impl Handler for NeovimHandler {
                 }
                 None => warn!("neovide.window_shadow called with invalid arguments: {arguments:?}"),
             },
+            "neovide.cursor_jump" => {
+                let _ = self.redraw_event_sender.send(RedrawEvent::CursorJump);
+            }
             "neovide.set_redraw" => {
                 if let Some(value) = arguments.first() {
                     let value = value.as_bool().unwrap_or(true);

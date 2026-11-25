@@ -492,6 +492,8 @@ pub enum RedrawEvent {
         window: u64,
         side: Option<PanelShadow>,
     },
+    /// From `neovide.cursor_jump`: the cursor moves without animation at the next flush.
+    CursorJump,
 }
 
 /// Buffer identity and scrollbar eligibility reported for a Neovim window.

@@ -267,6 +267,7 @@ pub struct CursorRenderer {
     previous_vfx_mode: cursor_vfx::VfxModeList,
     window_has_focus: bool,
     jumped: bool,
+    skip_animation: bool,
 
     settings: Arc<Settings>,
 }
@@ -285,6 +286,7 @@ impl CursorRenderer {
             previous_vfx_mode: cursor_vfx::VfxModeList::default(),
             window_has_focus: true,
             jumped: false,
+            skip_animation: false,
 
             settings,
         };
@@ -299,6 +301,10 @@ impl CursorRenderer {
     }
 
     pub fn update_cursor(&mut self, new_cursor: Cursor) { self.cursor = new_cursor; }
+
+    /// The cursor moves to its next destination at once. Call it in the same draw command batch
+    /// as the cursor update of that move.
+    pub fn skip_next_animation(&mut self) { self.skip_animation = true; }
 
     fn set_cursor_shape(&mut self, cursor_shape: &CursorShape, cell_percentage: f32) {
         self.corners = self
@@ -521,7 +527,8 @@ impl CursorRenderer {
 
         if center_destination != PixelPos::ZERO {
             let immediate_movement = !settings.animate_in_insert_mode && in_insert_mode
-                || !settings.animate_command_line && changed_to_from_cmdline;
+                || !settings.animate_command_line && changed_to_from_cmdline
+                || self.skip_animation;
             if self.jumped {
                 let alignments = self
                     .corners
@@ -578,6 +585,7 @@ impl CursorRenderer {
             animating |= vfx_animating;
         }
         self.jumped = false;
+        self.skip_animation = false;
         self.cmdline_ctx = next_cmdline_ctx;
 
         let blink_animating = settings.smooth_blink && self.blink_status.should_animate();

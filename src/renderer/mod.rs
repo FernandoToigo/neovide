@@ -188,6 +188,8 @@ impl Default for RendererSettings {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawCommand {
     UpdateCursor(Cursor),
+    /// The next cursor move of the batch has no animation.
+    CursorJump,
     FontChanged(String),
     LineSpaceChanged(f32),
     DefaultStyleChanged(Style),
@@ -744,6 +746,9 @@ impl Renderer {
             }
             DrawCommand::UpdateCursor(new_cursor) => {
                 self.cursor_renderer.update_cursor(new_cursor);
+            }
+            DrawCommand::CursorJump => {
+                self.cursor_renderer.skip_next_animation();
             }
             #[cfg(target_os = "macos")]
             DrawCommand::ScrollbarSnapshot(snapshot) => {

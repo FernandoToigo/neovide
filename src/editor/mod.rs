@@ -181,6 +181,8 @@ pub struct Editor {
     intro_message_extender: IntroMessageExtender,
     /// The shadow sides from `neovide.window_shadow`, by Neovim window handle.
     panel_shadows: HashMap<u64, PanelShadow>,
+    /// Set by `neovide.cursor_jump`, and sent to the renderer with the cursor at the next flush.
+    cursor_jump: bool,
     #[cfg(target_os = "macos")]
     match_paren_highlight_ids: HashSet<u64>,
     #[cfg(target_os = "macos")]
@@ -233,6 +235,7 @@ impl Editor {
             composition_order: 0,
             intro_message_extender: IntroMessageExtender::new(),
             panel_shadows: HashMap::new(),
+            cursor_jump: false,
         }
     }
 
@@ -616,6 +619,9 @@ impl Editor {
                     self.panel_shadows.remove(&window);
                 }
             },
+            RedrawEvent::CursorJump => {
+                self.cursor_jump = true;
+            }
             RedrawEvent::NeovideIntroBannerAllowed(allowed) => {
                 self.intro_message_extender.set_sponsor_allowed(
                     allowed,
@@ -1347,6 +1353,9 @@ impl Editor {
         } else {
             self.cursor.double_width = false;
             self.cursor.grid_cell = (" ".to_string(), None);
+        }
+        if std::mem::take(&mut self.cursor_jump) {
+            self.draw_command_batcher.queue(DrawCommand::CursorJump);
         }
         self.draw_command_batcher.queue(DrawCommand::UpdateCursor(self.cursor.clone()));
     }
