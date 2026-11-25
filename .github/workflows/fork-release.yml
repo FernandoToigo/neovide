@@ -18,7 +18,10 @@ defaults:
 
 jobs:
   release:
-    runs-on: windows-latest
+    # Keep an image with Visual Studio 2022. With crt-static, Skia compiles
+    # from source with the LLVM of the image, and the Visual Studio 2026 STL
+    # needs a newer Clang than the windows-2025-vs2026 image has.
+    runs-on: windows-2022
     env:
       RUSTUP_TOOLCHAIN: stable
       CARGO_TERM_COLOR: always
